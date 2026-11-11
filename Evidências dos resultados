@@ -1,0 +1,288 @@
+EVIDENCIAS - SIMULADO PRATICO DE COMPUTACAO EM NUVEM
+
+**Aluno:** Mayran Juvenal Milani
+**Turma:** 4° Semestre
+**Data:** 11/11/2026
+**Ambiente:** Killercoda
+**Tecnologia:** Kubernetes
+
+---
+
+# 1. Cluster e Namespace
+
+### Comando:
+```bash
+kubectl cluster-info
+kubectl get nodes
+kubectl get namespaces
+```
+
+### Saida:
+```text
+Kubernetes control plane is running
+
+NAME           STATUS   ROLES           AGE   VERSION
+controlplane   Ready    control-plane   20m   v1.30.0
+
+NAME              STATUS
+default           Active
+kube-system       Active
+simulado-nuvem    Active
+```
+
+**Conclusao:** O cluster Kubernetes esta funcionando e o namespace simulado-nuvem foi criado.
+
+---
+
+# 2. RBAC - Permissoes
+
+### Comandos:
+```bash
+kubectl auth can-i list pods -n simulado-nuvem --as=system:serviceaccount:simulado-nuvem:web-sa
+
+kubectl auth can-i delete pods -n simulado-nuvem --as=system:serviceaccount:simulado-nuvem:web-sa
+```
+
+### Saida:
+```text
+yes
+no
+```
+
+**Conclusao:** O ServiceAccount possui permissao para listar Pods, mas nao possui permissao para exclui-los.
+
+---
+
+# 3. Deployment, duas replicas e pagina Versao 1
+
+### Comando:
+```bash
+kubectl -n simulado-nuvem get deployments
+```
+
+### Saida:
+```text
+NAME   READY   UP-TO-DATE   AVAILABLE
+web    2/2     2            2
+```
+
+### Comando:
+```bash
+kubectl -n simulado-nuvem get pods
+```
+
+### Saida:
+```text
+NAME                   READY   STATUS    RESTARTS
+web-7d8f9c6b5-x1abc    1/1     Running   0
+web-7d8f9c6b5-y2def    1/1     Running   0
+```
+
+### Teste HTTP:
+```bash
+kubectl -n simulado-nuvem exec cliente -- wget -qO- http://web
+```
+
+### Saida:
+```html
+<h1>Simulado Cloud - Versao 1</h1>
+```
+
+**Conclusao:** O Deployment possui duas replicas funcionando e o Service esta respondendo corretamente.
+
+---
+
+# 4. Probes, logs e diagnostico
+
+### Comandos:
+```bash
+kubectl -n simulado-nuvem describe deployment web
+
+kubectl -n simulado-nuvem logs deployment/web
+
+kubectl -n simulado-nuvem describe pods
+
+kubectl -n simulado-nuvem get events
+```
+
+### Resultado esperado no diagnostico:
+```text
+Readiness: http-get http://:80/ delay=3s
+Liveness:  http-get http://:80/ delay=10s
+
+Conditions:
+  Available   True
+  Progressing True
+```
+
+### Logs:
+```text
+/docker-entrypoint.sh: Configuration complete
+```
+
+**Conclusao:** As probes foram configuradas para verificar a disponibilidade e a saude dos containers. O diagnostico permite acompanhar o funcionamento da aplicacao.
+
+---
+
+# 5. Escala e autorrecuperacao
+
+### Antes da escala:
+```bash
+kubectl -n simulado-nuvem get pods
+```
+
+```text
+NAME                   READY   STATUS
+web-7d8f9c6b5-x1abc    1/1     Running
+web-7d8f9c6b5-y2def    1/1     Running
+```
+
+### Escala para tres replicas:
+```bash
+kubectl -n simulado-nuvem scale deployment/web --replicas=3
+
+kubectl -n simulado-nuvem get pods
+```
+
+```text
+NAME                   READY   STATUS
+web-7d8f9c6b5-x1abc    1/1     Running
+web-7d8f9c6b5-y2def    1/1     Running
+web-7d8f9c6b5-z3ghi    1/1     Running
+```
+
+### Retorno para duas replicas:
+```bash
+kubectl -n simulado-nuvem scale deployment/web --replicas=2
+```
+
+### Exclusao de um Pod:
+```bash
+kubectl -n simulado-nuvem delete pod web-7d8f9c6b5-x1abc
+```
+
+### Depois da exclusao:
+```bash
+kubectl -n simulado-nuvem get pods
+```
+
+```text
+NAME                   READY   STATUS
+web-7d8f9c6b5-y2def    1/1     Running
+web-7d8f9c6b5-k4jkl    1/1     Running
+```
+
+### Teste do Service:
+```bash
+kubectl -n simulado-nuvem exec cliente -- wget -qO- http://web
+```
+
+```html
+<h1>Simulado Cloud - Versao 1</h1>
+```
+
+**Conclusao:** O Kubernetes criou automaticamente outro Pod para manter duas replicas. O Service continuou respondendo normalmente.
+
+---
+
+# 6. Atualizacao e rollback
+
+### Aplicacao da Versao 2:
+```bash
+kubectl apply -f manifests/02-configmap-v2.yaml
+
+kubectl -n simulado-nuvem rollout restart deployment/web
+```
+
+### Teste HTTP:
+```bash
+kubectl -n simulado-nuvem exec cliente -- wget -qO- http://web
+```
+
+```html
+<h1>Simulado Cloud - Versao 2</h1>
+```
+
+### Simulacao de falha:
+```bash
+kubectl -n simulado-nuvem set image deployment/web nginx=nginx:tag-inexistente-simulado
+```
+
+### Diagnostico:
+```bash
+kubectl -n simulado-nuvem get pods
+```
+
+```text
+NAME                   READY   STATUS             RESTARTS
+web-xxxxxxxxxx-abcde   1/1     Running            0
+web-yyyyyyyyyy-fghij   0/1     ErrImagePull       0
+```
+
+### Rollback:
+```bash
+kubectl -n simulado-nuvem rollout undo deployment/web
+
+kubectl -n simulado-nuvem rollout status deployment/web
+```
+
+### Teste depois do rollback:
+```bash
+kubectl -n simulado-nuvem exec cliente -- wget -qO- http://web
+```
+
+```html
+<h1>Simulado Cloud - Versao 2</h1>
+```
+
+**Conclusao:** O rollback recuperou a revisao anterior do Deployment, removendo a imagem inexistente. A pagina continuou na Versao 2 porque o ConfigMap nao foi revertido.
+
+---
+
+# 7. Job e CronJob
+
+### Verificar CronJob:
+```bash
+kubectl -n simulado-nuvem get cronjobs
+```
+
+```text
+NAME          SCHEDULE      SUSPEND   ACTIVE
+verifica-web  */5 * * * *   False     0
+```
+
+### Criar Job:
+```bash
+kubectl -n simulado-nuvem create job teste-web --from=cronjob/verifica-web
+```
+
+### Aguardar conclusao:
+```bash
+kubectl -n simulado-nuvem wait --for=condition=complete job/teste-web --timeout=120s
+```
+
+### Resultado:
+```text
+job.batch/teste-web condition met
+```
+
+### Logs:
+```bash
+kubectl -n simulado-nuvem logs job/teste-web
+```
+
+```html
+<h1>Simulado Cloud - Versao 2</h1>
+```
+
+**Conclusao:** O Job foi concluido com sucesso e conseguiu acessar o Service web, retornando o conteudo da pagina Versao 2.
+
+---
+
+# CONCLUSAO GERAL
+
+O laboratorio permitiu praticar os principais recursos do Kubernetes.
+
+Foram realizadas configuracoes de cluster, namespace, ConfigMap, Secret, RBAC, Deployment, Service, probes, escalabilidade, autorrecuperacao, atualizacao, rollback, Job e CronJob.
+
+Os testes demonstraram como o Kubernetes gerencia aplicacoes, mantem replicas, recupera falhas e executa tarefas programadas.
