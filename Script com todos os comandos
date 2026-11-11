@@ -1,0 +1,207 @@
+scripts/comandos.sh
+
+#!/bin/bash
+
+# ==========================================
+# SIMULADO PRATICO DE COMPUTACAO EM NUVEM
+# Kubernetes - Killercoda
+# ==========================================
+
+# ETAPA 1 - Verificar cluster e criar namespace
+
+kubectl cluster-info
+kubectl get nodes
+
+kubectl create namespace simulado-nuvem
+
+kubectl get namespaces
+kubectl config current-context
+
+# ETAPA 2 - Aplicar ConfigMap versao 1
+
+kubectl apply -f manifests/01-configmap-v1.yaml
+
+kubectl -n simulado-nuvem get configmap pagina
+kubectl -n simulado-nuvem describe configmap pagina
+
+# ETAPA 3 - Secret, ServiceAccount e RBAC
+
+kubectl apply -f manifests/03-rbac.yaml
+
+kubectl -n simulado-nuvem get secret
+kubectl -n simulado-nuvem get serviceaccount
+kubectl -n simulado-nuvem get role
+kubectl -n simulado-nuvem get rolebinding
+
+# Testar permissao de listagem
+
+kubectl auth can-i list pods \
+  -n simulado-nuvem \
+  --as=system:serviceaccount:simulado-nuvem:web-sa
+
+# Testar negacao de exclusao
+
+kubectl auth can-i delete pods \
+  -n simulado-nuvem \
+  --as=system:serviceaccount:simulado-nuvem:web-sa
+
+# ETAPA 4 - Deployment e Service
+
+kubectl apply -f manifests/04-web.yaml
+
+kubectl -n simulado-nuvem get deployments
+kubectl -n simulado-nuvem get pods
+kubectl -n simulado-nuvem get services
+
+kubectl -n simulado-nuvem rollout status deployment/web
+
+# Testar resposta HTTP pelo Pod cliente
+
+kubectl -n simulado-nuvem exec cliente -- wget -qO- http://web
+
+# Diagnostico do Deployment
+
+kubectl -n simulado-nuvem describe deployment web
+
+kubectl -n simulado-nuvem logs deployment/web
+
+# Verificar probes e eventos
+
+kubectl -n simulado-nuvem describe pods
+
+kubectl -n simulado-nuvem get events \
+  --sort-by=.metadata.creationTimestamp
+
+# ETAPA 5 - Escala e autorrecuperacao
+
+# Registrar estado inicial
+
+kubectl -n simulado-nuvem get pods -o wide
+
+# Aumentar para 3 replicas
+
+kubectl -n simulado-nuvem scale deployment/web --replicas=3
+
+kubectl -n simulado-nuvem rollout status deployment/web
+
+kubectl -n simulado-nuvem get pods
+
+# Voltar para 2 replicas
+
+kubectl -n simulado-nuvem scale deployment/web --replicas=2
+
+kubectl -n simulado-nuvem rollout status deployment/web
+
+kubectl -n simulado-nuvem get pods
+
+# Excluir somente um Pod
+
+POD=$(kubectl -n simulado-nuvem get pods \
+  -l app=web -o jsonpath='{.items[0].metadata.name}')
+
+echo "Pod excluido: $POD"
+
+kubectl -n simulado-nuvem delete pod "$POD"
+
+# Observar a reposicao
+
+kubectl -n simulado-nuvem get pods -w
+
+# Em outro terminal, ou apos interromper o monitoramento:
+
+kubectl -n simulado-nuvem get pods
+
+kubectl -n simulado-nuvem exec cliente -- wget -qO- http://web
+
+# ETAPA 6 - Atualizacao e rollback
+
+# Aplicar ConfigMap versao 2
+
+kubectl apply -f manifests/02-configmap-v2.yaml
+
+# Reiniciar Deployment
+
+kubectl -n simulado-nuvem rollout restart deployment/web
+
+kubectl -n simulado-nuvem rollout status deployment/web
+
+# Confirmar pagina versao 2
+
+kubectl -n simulado-nuvem exec cliente -- wget -qO- http://web
+
+# Simular atualizacao com imagem inexistente
+
+kubectl -n simulado-nuvem set image deployment/web \
+  nginx=nginx:tag-inexistente-simulado
+
+# Verificar falha da atualizacao
+
+kubectl -n simulado-nuvem rollout status deployment/web \
+  --timeout=60s
+
+kubectl -n simulado-nuvem get pods
+
+kubectl -n simulado-nuvem describe deployment web
+
+kubectl -n simulado-nuvem get events \
+  --sort-by=.metadata.creationTimestamp
+
+# Executar rollback
+
+kubectl -n simulado-nuvem rollout undo deployment/web
+
+kubectl -n simulado-nuvem rollout status deployment/web
+
+# Conferir estado recuperado
+
+kubectl -n simulado-nuvem get deployments
+kubectl -n simulado-nuvem get pods
+
+# Confirmar que ConfigMap continua na versao 2
+
+kubectl -n simulado-nuvem get configmap pagina -o yaml
+
+kubectl -n simulado-nuvem exec cliente -- wget -qO- http://web
+
+# ETAPA 7 - CronJob e Job
+
+kubectl apply -f manifests/05-cronjob.yaml
+
+kubectl -n simulado-nuvem get cronjobs
+
+# Criar Job imediatamente a partir do CronJob
+
+kubectl -n simulado-nuvem create job teste-web \
+  --from=cronjob/verifica-web
+
+# Aguardar conclusao
+
+kubectl -n simulado-nuvem wait \
+  --for=condition=complete \
+  job/teste-web \
+  --timeout=120s
+
+# Conferir Job e logs
+
+kubectl -n simulado-nuvem get jobs
+
+kubectl -n simulado-nuvem logs job/teste-web
+
+# ETAPA 8 - Conferencia final
+
+kubectl get nodes
+
+kubectl get namespaces
+
+kubectl -n simulado-nuvem get all
+
+kubectl -n simulado-nuvem get configmaps
+
+kubectl -n simulado-nuvem get secrets
+
+kubectl -n simulado-nuvem get cronjobs
+
+kubectl -n simulado-nuvem get jobs
+
+kubectl -n simulado-nuvem get events \
+  --sort-by=.metadata.creationTimestamp
